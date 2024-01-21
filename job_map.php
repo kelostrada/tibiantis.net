@@ -24,7 +24,7 @@ if ($lock !== 0) {
 }
 
 $stepInc = 1;
-$tiles = 3;
+$tiles = 2;
 
 $xMin = 31900;
 $xMax = 33500;

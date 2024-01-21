@@ -31,7 +31,7 @@ if ($temp) {
 }
 
 $stepInc = 1;
-$tiles = 4;
+$tiles = 3;
 
 $xMin = 31900;
 $xMax = 33500;
