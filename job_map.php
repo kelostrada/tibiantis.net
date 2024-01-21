@@ -8,10 +8,19 @@ require __DIR__ . '/vendor/autoload.php';
 
 $starttime = time();
 
-// read step
-$step = (int)file_get_contents('step.map.txt');
+$sql = "SELECT count(*) as c FROM map_tiles WHERE processed = 0";
+$remainingTilesToProcess = db_query($sql);
 
-mlog("Starting Job, step: $step");
+foreach ($remainingTilesToProcess as $rem)
+{
+    $remainingTilesToProcess = $rem['c'];
+}
+
+if ($remainingTilesToProcess == 0) {
+    exit;
+}
+
+mlog("Starting Map Job");
 
 // read lock
 $lock = (int)file_get_contents('lock.map.txt');
@@ -23,82 +32,70 @@ if ($lock !== 0) {
     exit;
 }
 
-$stepInc = 1;
-$tiles = 2;
-
-$xMin = 31900;
-$xMax = 33500;
-$yMin = 31500;
-$yMax = 33000;
-
 $addedTilesCount = 0;
+$i = 0;
 
-for ($x = $xMin; $x < $xMax; $x += $tiles) {
-    for ($y = $yMin + $step * $tiles; $y < $yMin + ($step + $stepInc) * $tiles; $y += $tiles) {
-        $x1 = $x;
-        $x2 = $x + $tiles;
-        $y1 = $y;
-        $y2 = $y + $tiles;
+// fit into 1 minute
+while (time() - $starttime < 55) {
+    $i++;
 
-        // mlog("Processing ($x1, $y1) ($x2, $y2)");
+    $sql = "SELECT x, y, z FROM map_tiles WHERE processed = 0 LIMIT 500";
+    // Execute the query
+    $tilesToProcess = db_query($sql);
+    $conds = [];
 
-        // SELECT map fields with most popular items
-        $sql = "SELECT t.x, t.y, t.z, t.items FROM ( 
-            SELECT x, y, z, items, row_number() over (partition by x, y, z order by count(items) desc) as rn 
-            FROM tiles 
-            where x >= $x1 and x < $x2 and y >= $y1 and y < $y2 
-            group by items, x, y, z 
-            order by x, y, z 
-        ) t 
-        WHERE t.rn = 1;";
+    foreach ($tilesToProcess as $tile) {
+        $x = $tile['x'];
+        $y = $tile['y'];
+        $z = $tile['z'];
 
-        // mlog($sql);
-
-        // Execute the query
-        $mapTiles = db_query($sql);
-
-        // INSERT map data
-        $sql = "REPLACE INTO map_tiles (x, y, z, items) VALUES ";
-        $tileValues = [];
-
-        foreach ($mapTiles as $mapTile) {
-            $tx = $mapTile['x'];
-            $ty = $mapTile['y'];
-            $tz = $mapTile['z'];
-            $items = $mapTile['items'];
-            $tileValues[] = "($tx, $ty, $tz, '$items')";
-        }
-
-        $sql .= join(", ", $tileValues);
-
-        $addedTilesCount += count($tileValues);
-
-        // mlog($sql);
-
-        if (count($tileValues) > 0) {
-            // Execute the query
-            db_query($sql);
-        }
+        $conds[] = "(x = $x and y = $y and z = $z)";
     }
+
+    $sqlConds = join(' or ', $conds);
+
+    // SELECT map fields with most popular items
+    $sql = "SELECT t.x, t.y, t.z, t.items FROM ( 
+        SELECT x, y, z, items, row_number() over (partition by x, y, z order by count(items) desc) as rn 
+        FROM tiles 
+        where $sqlConds
+        group by items, x, y, z 
+        order by x, y, z 
+    ) t 
+    WHERE t.rn = 1;";
+
+    // Execute the query
+    $mapTiles = db_query($sql);
+
+    // INSERT map data
+    $sql = "REPLACE INTO map_tiles (x, y, z, items, processed) VALUES ";
+    $tileValues = [];
+
+    foreach ($mapTiles as $mapTile) {
+        $tx = $mapTile['x'];
+        $ty = $mapTile['y'];
+        $tz = $mapTile['z'];
+        $items = $mapTile['items'];
+        $tileValues[] = "($tx, $ty, $tz, '$items', true)";
+    }
+
+    $sql .= join(", ", $tileValues);
+
+    $addedTilesCount += count($tileValues);
+
+    if (count($tileValues) > 0) {
+        // Execute the query
+        db_query($sql);
+    }
+
+    // mlog("Processed batch {$i}");
 }
 
-$yFrom = $yMin + $step * $tiles;
-$yTo = $yMin + ($step + $stepInc) * $tiles - 1;
-mlog("Checked ($xMin, $yFrom) to ($xMax, $yTo)");
-
-// set step
-if ($yFrom > $yMax) {
-    $step = 0;
-    mlog("Finished Job.");
-} else {
-    $step += $stepInc;
-}
-
-// save step
-file_put_contents('step.map.txt', $step);
 // unlock
 file_put_contents('lock.map.txt', 0);
 
+$remainingTilesToProcess = $remainingTilesToProcess - $addedTilesCount;
+
 $time = time() - $starttime;
-mlog("Job done, added tiles: $addedTilesCount, unlocked, next step: $step, job took: $time s.");
+mlog("Job done, added tiles: $addedTilesCount, remaining: $remainingTilesToProcess, unlocked, job took: $time s.");
 
