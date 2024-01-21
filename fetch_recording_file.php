@@ -4,9 +4,9 @@ ini_set('display_errors', 1);
 ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
-require __DIR__ . '/../vendor/autoload.php';
+require __DIR__ . '/vendor/autoload.php';
 
-$dotenv = Dotenv\Dotenv::createImmutable(__DIR__ . '/../');
+$dotenv = Dotenv\Dotenv::createImmutable(__DIR__);
 $dotenv->load();
 
 // Database configuration
@@ -22,7 +22,7 @@ if ($_GET['key'] !== $_ENV['SECRET_KEY']) {
     exit;
 }
 
-function getFirstRecording()
+function getRecordingFile($recordingId)
 {
     global $hostname, $username, $password, $database;
 
@@ -35,7 +35,7 @@ function getFirstRecording()
     }
 
     // SQL query for SELECT statement
-    $sql = "SELECT * FROM recordings WHERE processed = 0 ORDER BY inserted_at ASC LIMIT 1;";
+    $sql = "SELECT * FROM recordings WHERE id = $recordingId;";
 
     // Execute the query
     $result = $conn->query($sql);
@@ -43,21 +43,26 @@ function getFirstRecording()
     // Close the database connection
     $conn->close();
 
+    // Check if there are rows returned
     $recording = mysqli_fetch_object($result);
 
-    if (!$recording) return false;
-
     $recording->stored_file = $recording->filename . "-" . $recording->sha;
+    $recording->file_path = "../recordings/" . $recording->stored_file;
     return $recording;
 }
 
-$recording = getFirstRecording();
+$file = getRecordingFile($_GET['recording_id']);
 
-header("Content-type:application/json");
+$fp = fopen($file->file_path, 'rb');
 
-if($recording) {
-    echo json_encode($recording);
-} else {
-    echo json_encode(['id' => -1, 'stored_file' => 'no new recordings']);
-}
+header('Content-Description: File Transfer');
+header('Content-Type: application/octet-stream');
+header('Content-Disposition: attachment; filename='.$file->stored_file);
+header('Content-Transfer-Encoding: binary');
+header('Expires: 0');
+header('Cache-Control: must-revalidate, post-check=0, pre-check=0');
+header('Pragma: public');
+header('Content-Length: ' . filesize($file->file_path));
 
+fpassthru($fp);
+exit;
