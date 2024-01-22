@@ -141,19 +141,21 @@ function markMapTileToProcess($tiles)
         die("Connection failed: " . $conn->connect_error);
     }
 
-    // SQL query using a prepared statement
-    $sql = "UPDATE map_tiles SET processed = 0 WHERE ";
-
-    $sqlConditions = [];
+    $tileValues = [];
 
     foreach($tiles as $tile) {
-        $sqlConditions[] = "(x = $tile->x AND y = $tile->y AND z = $tile->z)";
+        $tileValues[] = "($tile->x, $tile->y, $tile->z, false)";
     }
 
-    $sql .= join($sqlConditions, " OR ");
+    $tileValues = join(", ", $tileValues);
+
+    $sql = "INSERT INTO map_tiles (x, y, z, processed) VALUES $tileValues ON DUPLICATE KEY UPDATE processed=false;";
 
     // Execute the query
-    return $conn->query($sql);
+    $conn->query($sql);
+
+    // Close the database connection
+    $conn->close();
 }
 
 $input = json_decode(file_get_contents("php://input"));

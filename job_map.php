@@ -20,7 +20,7 @@ if ($remainingTilesToProcess == 0) {
     exit;
 }
 
-mlog("Starting Map Job");
+mlog("Starting Map Job, remaining: $remainingTilesToProcess");
 
 // read lock
 $lock = (int)file_get_contents('lock.map.txt');
@@ -36,7 +36,7 @@ $addedTilesCount = 0;
 $i = 0;
 
 // fit into 1 minute
-while (time() - $starttime < 55) {
+while (time() - $starttime < 55 && $addedTilesCount < $remainingTilesToProcess) {
     $i++;
 
     $sql = "SELECT x, y, z FROM map_tiles WHERE processed = 0 LIMIT 500";
